@@ -14,7 +14,7 @@ REWARD_DECAY = 1 - math.exp(math.log(1 / 2) / (6 * YEAR))
 BASELINE_GROWTH = math.exp(math.log(3) / YEAR) - 1
 
 # Interval between vesting chunks
-VESTING_INTERVAL = 2800
+VESTING_INTERVAL = 2880
 # Number of intervals over which vesting occurs
 VESTING_PERIOD_INTERVALS = 180
 
@@ -68,13 +68,12 @@ class BehaviourConfig:
     rebase_pledge: bool = False
 
 
-class SectorBunch(NamedTuple):
-    power: int
-    pledge: float
-    termination_step: int
-
-
 class NetworkState:
+    """
+    Models basic network behaviour under simple onboarding and sector extension assumptions.
+    The intention is a model to guide intuition and explore alternatives, rather than
+    a prediction of mainnet future. There are some simplifications, especially in the initial state.
+    """
     def __init__(self, cfg: NetworkConfig, behaviour: BehaviourConfig, epoch_step: int):
         assert epoch_step < VESTING_INTERVAL
         assert VESTING_INTERVAL % epoch_step == 0
@@ -91,14 +90,16 @@ class NetworkState:
         self.reward_locked: float = 0  # initialised below
         # Reward vesting amounts indexed by step.
         self._reward_vesting: dict[int, float] = defaultdict(float)
-        # FIXME this flat vesting isn't the right shape given block reward decay.
+        # This flat vesting isn't exactly the right shape to match network state,
+        # given block reward decay.
         self.lock_reward(self.step_no, cfg.reward_locked)
 
         self.power: int = 0
         self.pledge_locked: float = 0
         # Scheduled expiration of power, by step.
         self._expirations: dict[int, list[SectorBunch]] = defaultdict(list[SectorBunch])
-        # Assign expiration & termination epochs to initial power, assuming uniform onboarding
+        # Assign expiration & end-of-life epochs to initial power, assuming uniform onboarding.
+        # This isn't a super accurate model of the real distribution of expirations and lifetimes.
         bunch_power = cfg.qa_power // self.step_no
         bunch_pledge = cfg.pledge_locked / self.step_no
         for onboard_step in range(self.step_no):
@@ -202,6 +203,12 @@ class NetworkState:
         expiration = min(step + self.behaviour.sector_commitment_epochs // self.step_size,
             lifetime_end)
         self._expirations[expiration].append(SectorBunch(power, pledge, lifetime_end))
+
+
+class SectorBunch(NamedTuple):
+    power: int
+    pledge: float
+    termination_step: int
 
 
 def sum_over_exponential_decay(duration: int, decay: float) -> float:

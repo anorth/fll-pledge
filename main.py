@@ -7,8 +7,8 @@ from pledge.network import MAINNET_APR_2023, NetworkState, BehaviourConfig, SECT
 
 
 def main():
-    step_size_epochs = 40
-    epochs = 7 * YEAR
+    step_size_epochs = 120
+    simulation_epochs = 7 * YEAR
     stats_interval_epochs = DAY
     netcfg = dataclasses.replace(
         MAINNET_APR_2023,
@@ -26,7 +26,7 @@ def main():
 
     first_step = net.step_no
     stats = []
-    for step in range(first_step, first_step + epochs // step_size_epochs):
+    for step in range(first_step, first_step + simulation_epochs // step_size_epochs):
         if step % (stats_interval_epochs // step_size_epochs) == 0:
             stats.append(net.summary())
         net.handle_epochs()
