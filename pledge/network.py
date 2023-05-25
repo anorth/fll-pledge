@@ -56,10 +56,16 @@ MAINNET_APR_2023 = NetworkConfig(
 
 @dataclass
 class BehaviourConfig:
+    # Duration for which to commit/extend sectors
     sector_commitment_epochs: int = SECTOR_COMMITMENT_DEFAULT
+    # Maximum total sector lifetime
     sector_lifetime_epochs: int = SECTOR_LIFETIME_DEFAULT
+    # Fraction of expiring commitments to extend at each opportunity
     extension_rate: float = SECTOR_EXTENSION_RATE_DEFAULT
+    # New onboarding rate
     onboarding_daily: int = 0
+    # Whether to reduce pledge to network requirement, if lower, when extending.
+    rebase_pledge: bool = False
 
 
 class SectorBunch(NamedTuple):
@@ -116,7 +122,7 @@ class NetworkState:
             'circulating_supply': round(self.circulating_supply, rounding),
             'pledge_locked': round(self.pledge_locked, rounding),
             'reward_locked': round(self.reward_locked, rounding),
-            'locked_target': round(locked_target, ndigits=2),
+            'locked_target': round(locked_target, ndigits=4),
             'sector_pledge': self.initial_pledge_for_power(SECTOR_SIZE),
         }
 
@@ -137,7 +143,8 @@ class NetworkState:
             # Extend some of the expiring power, if possible
             extend_power = int(bunch.power * self.behaviour.extension_rate)
             extend_pledge = self.initial_pledge_for_power(extend_power)
-            extend_pledge = max(bunch.pledge * self.behaviour.extension_rate, extend_pledge)
+            if not self.behaviour.rebase_pledge:
+                extend_pledge = max(bunch.pledge * self.behaviour.extension_rate, extend_pledge)
             if bunch.termination_step > self.step_no:
                 self.pledge_sectors(self.step_no, extend_power, extend_pledge, bunch.termination_step)
 
