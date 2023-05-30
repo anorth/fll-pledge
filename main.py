@@ -1,9 +1,9 @@
 import dataclasses
 import json
 
-from pledge.consts import YEAR, DAY, PEBIBYTE
+from pledge.consts import YEAR, DAY, PEBIBYTE, EXBIBYTE
 from pledge.network import MAINNET_APR_2023, NetworkState, BehaviourConfig, SECTOR_LIFETIME_DEFAULT, \
-    SECTOR_COMMITMENT_DEFAULT
+    SECTOR_COMMITMENT_DEFAULT, Onboarding
 
 
 def main():
@@ -14,12 +14,13 @@ def main():
         MAINNET_APR_2023,
         baseline_growth=0.0,
     )
-    replacement_onboarding = netcfg.qa_power / SECTOR_LIFETIME_DEFAULT * DAY
+    # Onboarding rate at replacement for current power
+    onboarding = Onboarding.constant(netcfg.qa_power / SECTOR_LIFETIME_DEFAULT)
+    # onboarding = Onboarding.increasing(netcfg.epoch, 12 * PEBIBYTE / DAY, 1 * PEBIBYTE / DAY / YEAR)
     behaviour = BehaviourConfig(
         sector_commitment_epochs=SECTOR_COMMITMENT_DEFAULT,
         extension_rate=1.0,
-        onboarding_daily=replacement_onboarding,
-        # onboarding_daily=12 * PEBIBYTE,
+        onboarding=onboarding,
         rebase_pledge=True,
     )
     net = NetworkState(netcfg, behaviour, epoch_step=step_size_epochs)

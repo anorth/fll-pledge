@@ -1,7 +1,7 @@
 import math
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import NamedTuple, Callable
 
 from .consts import DAY, SECTOR_SIZE, YEAR, PEBIBYTE
 
@@ -11,7 +11,7 @@ INITIAL_PLEDGE_PROJECTION_PERIOD = 20 * DAY
 # Reward at epoch = initial reward * (1-r)^epochs
 REWARD_DECAY = 1 - math.exp(math.log(1 / 2) / (6 * YEAR))
 # Baseline at epoch = initial baseline * (1+b)^epochs
-BASELINE_GROWTH = math.exp(math.log(3) / YEAR) - 1
+BASELINE_GROWTH = math.exp(math.log(2) / YEAR) - 1
 
 # Interval between vesting chunks
 VESTING_INTERVAL = 2880
@@ -54,6 +54,30 @@ MAINNET_APR_2023 = NetworkConfig(
     reward_locked=17403179.4812188,
 )
 
+
+class Onboarding:
+    """Onboarding function builders"""
+    @staticmethod
+    def constant(per_epoch: int) -> Callable[[int, int], int]:
+        """Returns an onboarding function of a fixed daily amount."""
+        def onboarding(_epoch: int, _power: int) -> int:
+            return per_epoch
+        return onboarding
+
+    @staticmethod
+    def proportion(proportion: float) -> Callable[[int, int], int]:
+        """Returns an onboarding function of a fixed proportion of current power."""
+        def onboarding(_epoch: int, power: int) -> int:
+            return int(proportion * power)
+        return onboarding
+
+    @staticmethod
+    def linear(start_epoch: int, base: int, slope: int) -> Callable[[int, int], int]:
+        """Returns an onboarding function that changes linearly with time."""
+        def onboarding(epoch: int, _power: int) -> int:
+            return base + (epoch - start_epoch) * slope
+        return onboarding
+
 @dataclass
 class BehaviourConfig:
     # Duration for which to commit/extend sectors
@@ -62,8 +86,8 @@ class BehaviourConfig:
     sector_lifetime_epochs: int = SECTOR_LIFETIME_DEFAULT
     # Fraction of expiring commitments to extend at each opportunity
     extension_rate: float = SECTOR_EXTENSION_RATE_DEFAULT
-    # New onboarding rate
-    onboarding_daily: int = 0
+    # New onboarding function of (epoch, current power) -> new power per epoch.
+    onboarding: Callable[[int, int], int] = Onboarding.constant(0)
     # Whether to reduce pledge to network requirement, if lower, when extending.
     rebase_pledge: bool = False
 
@@ -120,6 +144,8 @@ class NetworkState:
             # 'step': self.step_no,
             'epoch': epoch,
             'power': self.power,
+            'epoch_reward': self.epoch_reward,
+            'baseline': self.power_baseline,
             'circulating_supply': round(self.circulating_supply, rounding),
             'pledge_locked': round(self.pledge_locked, rounding),
             'reward_locked': round(self.reward_locked, rounding),
@@ -128,6 +154,7 @@ class NetworkState:
         }
 
     def handle_epochs(self):
+        epoch = self.step_no * self.step_size
         # Emit and vest rewards
         self.lock_reward(self.step_no, self.epoch_reward * self.step_size)
 
@@ -150,7 +177,7 @@ class NetworkState:
                 self.pledge_sectors(self.step_no, extend_power, extend_pledge, bunch.termination_step)
 
         # Onboard new power
-        new_power = self.behaviour.onboarding_daily / DAY * self.step_size
+        new_power = self.behaviour.onboarding(epoch, self.power) * self.step_size
         self.pledge_sectors(self.step_no, new_power, self.initial_pledge_for_power(new_power),
             self.step_no + self.behaviour.sector_lifetime_epochs // self.step_size)
 
@@ -166,12 +193,6 @@ class NetworkState:
         consensus = self.circulating_supply * power * SUPPLY_LOCK_TARGET / max(self.power,
             self.power_baseline)
         return storage + consensus
-
-    def power_for_initial_pledge(self, pledge: float) -> int:
-        """The maximum power that can be committed for an incremental nominal pledge."""
-        rewards = self.projected_reward(self.epoch_reward, INITIAL_PLEDGE_PROJECTION_PERIOD)
-        power = pledge * self.power / (rewards + self.circulating_supply * SUPPLY_LOCK_TARGET)
-        return int((power // SECTOR_SIZE) * SECTOR_SIZE)
 
     def expected_reward_for_power(self, power: int, duration: int, decay=REWARD_DECAY) -> float:
         """Projected rewards for some power over a period, taking reward decay into account."""
